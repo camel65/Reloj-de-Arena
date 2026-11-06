@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reloj de Arena Cuántico</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            cursor: default;
+        }
+
+        /* Botón de Inicio Blanco */
+        #btn-inicio {
+            padding: 18px 45px;
+            font-size: 1.6rem;
+            color: #ffffff;
+            background: transparent;
+            border: 2px solid #ffffff;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.4);
+            z-index: 10;
+        }
+
+        #btn-inicio:hover {
+            background-color: #ffffff;
+            color: #000000;
+            box-shadow: 0 0 35px rgba(255, 255, 255, 0.9);
+            transform: scale(1.08);
+        }
+
+        /* Controles Flotantes */
+        .controles {
+            display: none;
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .btn-control {
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-control:hover {
+            background: #ffffff;
+            color: #000000;
+            transform: scale(1.05);
+        }
+
+        #btn-salir:hover {
+            background: rgba(255, 0, 85, 0.9);
+            border-color: #ff0055;
+            color: #ffffff;
+        }
+
+        /* Contenedor del Lienzo */
+        #canvas-container {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- CAMBIA AQUÍ EL ARCHIVO DE AUDIO POR EL QUE QUIERAS (ej: musica25.mp3, mi_cancion.mp3, etc.) -->
+    <audio id="miMusica" src="musica32.mp3" preload="auto" loop></audio>
+
+    <!-- Botón de Inicio Blanco -->
+    <button id="btn-inicio">Inicio</button>
+
+    <!-- Controles flotantes -->
+    <div class="controles" id="panel-controles">
+        <button class="btn-control" id="btn-audio">🔊 Sonido: ON</button>
+        <button class="btn-control" id="btn-salir">Salir</button>
+    </div>
+
+    <!-- Contenedor del lienzo -->
+    <div id="canvas-container">
+        <canvas id="relojCanvas"></canvas>
+    </div>
+
+    <script>
+        const btnInicio = document.getElementById('btn-inicio');
+        const btnSalir = document.getElementById('btn-salir');
+        const btnAudio = document.getElementById('btn-audio');
+        const panelControles = document.getElementById('panel-controles');
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('relojCanvas');
+        const ctx = canvas.getContext('2d');
+        const audioElement = document.getElementById('miMusica');
+
+        let animacionId = null;
+        let activo = false;
+
+        // Estados: 'CAIDA', 'INVERSION', 'ESPERA'
+        let estado = 'CAIDA';
+        let tiempoEstado = 0;
+
+        let particulasSup = [];
+        let particulasInf = [];
+        let chorro = [];
+        let anguloRotacion = 0;
+        
+        const altoReloj = 220;
+        const anchoReloj = 140;
+        const cuelloAncho = 6;
+
+        function ajustarCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', () => {
+            if (activo) ajustarCanvas();
+        });
+
+        // Obtener el ancho del cristal en una altura Y determinada
+        function obtenerAnchoEnY(y) {
+            let absY = Math.abs(y);
+            if (absY > altoReloj) return 0;
+            let factor = absY / altoReloj;
+            return cuelloAncho + (anchoReloj / 2 - cuelloAncho) * factor;
+        }
+
+        class Arena {
+            constructor() {
+                this.tam = Math.random() * 1.5 + 1.5;
+                this.resetSup();
+            }
+
+            resetSup() {
+                this.y = -altoReloj + 15 + Math.random() * (altoReloj - 25);
+                let maxW = obtenerAnchoEnY(this.y) - 6;
+                this.x = (Math.random() - 0.5) * (maxW * 1.8);
+                this.vy = Math.random() * 0.4 + 0.3;
+            }
+
+            actualizarSup() {
+                this.y += this.vy;
+                let maxW = obtenerAnchoEnY(this.y) - 4;
+                
+                // Confinamiento dentro de las paredes superiores
+                if (Math.abs(this.x) > maxW / 2) {
+                    this.x = Math.sign(this.x) * (maxW / 2);
+                }
+            }
+        }
+
+        function inicializarArena() {
+            particulasSup = [];
+            particulasInf = [];
+            chorro = [];
+            for (let i = 0; i < 180; i++) {
+                particulasSup.push(new Arena());
+            }
+        }
+
+        // Control del Botón de Audio (ON/OFF)
+        btnAudio.addEventListener('click', (e) => {
+            e.stopPropagation();
+            audioElement.muted = !audioElement.muted;
+            btnAudio.textContent = audioElement.muted ? "🔇 Sonido: OFF" : "🔊 Sonido: ON";
+        });
+
+        // Iniciar Animación
+        btnInicio.addEventListener('click', () => {
+            btnInicio.style.display = 'none';
+            panelControles.style.display = 'flex';
+            canvasContainer.style.display = 'block';
+
+            ajustarCanvas();
+            reiniciarBucle();
+            activo = true;
+
+            audioElement.currentTime = 0;
+            audioElement.muted = false;
+            btnAudio.textContent = "🔊 Sonido: ON";
+            audioElement.play().catch(err => console.log(err));
+
+            iniciarAnimacion();
+        });
+
+        // Salir
+        btnSalir.addEventListener('click', (e) => {
+            e.stopPropagation();
+            activo = false;
+            if (animacionId) cancelAnimationFrame(animacionId);
+
+            audioElement.pause();
+            audioElement.currentTime = 0;
+
+            canvasContainer.style.display = 'none';
+            panelControles.style.display = 'none';
+            btnInicio.style.display = 'block';
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        function reiniciarBucle() {
+            estado = 'CAIDA';
+            tiempoEstado = Date.now();
+            anguloRotacion = 0;
+            inicializarArena();
+        }
+
+        // BUCLE PRINCIPAL
+        function iniciarAnimacion() {
+            if (!activo) return;
+
+            // Limpieza absoluta de pantalla (sin estelas ni residuos)
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            let ahora = Date.now();
+            let cx = canvas.width / 2;
+            let cy = canvas.height / 2;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            if (estado === 'INVERSION') {
+                let progreso = (ahora - tiempoEstado) / 1200;
+                if (progreso >= 1) {
+                    progreso = 1;
+                    estado = 'ESPERA';
+                    tiempoEstado = ahora;
+                }
+                anguloRotacion = progreso * Math.PI;
+            }
+
+            ctx.rotate(anguloRotacion);
+
+            // Dibujar estructura metálica y de cristal
+            dibujarEstructuraReloj();
+
+            if (estado === 'CAIDA') {
+                // Caída continua desde el cuello hacia la base inferior
+                if (particulasSup.length > 0 && Math.random() < 0.7) {
+                    let p = particulasSup.pop();
+                    p.x = (Math.random() - 0.5) * (cuelloAncho - 2);
+                    p.y = 0;
+                    p.vy = Math.random() * 3 + 5;
+                    chorro.push(p);
+                }
+
+                // Dibujar y actualizar arena del ampolla superior
+                particulasSup.forEach(p => {
+                    p.actualizarSup();
+                    dibujarParticula(p.x, p.y, p.tam);
+                });
+
+                // Chorro descendente
+                for (let i = chorro.length - 1; i >= 0; i--) {
+                    let p = chorro[i];
+                    p.y += p.vy;
+
+                    // Límite de suelo apilado según cantidad de partículas caídas
+                    let alturaSueloInf = altoReloj - 8 - Math.floor(particulasInf.length / 12) * 3;
+
+                    if (p.y >= alturaSueloInf) {
+                        let pCaida = chorro.splice(i, 1)[0];
+                        pCaida.y = alturaSueloInf + (Math.random() - 0.5) * 4;
+                        let maxW = obtenerAnchoEnY(pCaida.y) - 6;
+                        pCaida.x = (Math.random() - 0.5) * maxW;
+                        particulasInf.push(pCaida);
+                    } else {
+                        dibujarParticula(p.x, p.y, p.tam);
+                    }
+                }
+
+                // Arena acumulada en la base inferior
+                particulasInf.forEach(p => {
+                    dibujarParticula(p.x, p.y, p.tam);
+                });
+
+                // Iniciar rotación tras 9 segundos de vaciado
+                if (ahora - tiempoEstado > 9000) {
+                    estado = 'INVERSION';
+                    tiempoEstado = ahora;
+                }
+            }
+            else if (estado === 'INVERSION' || estado === 'ESPERA') {
+                // En rotación dibujamos todas las partículas fijas en su sitio
+                particulasSup.concat(chorro, particulasInf).forEach(p => {
+                    dibujarParticula(p.x, p.y, p.tam);
+                });
+
+                if (estado === 'ESPERA' && ahora - tiempoEstado > 2000) {
+                    reiniciarBucle();
+                }
+            }
+
+            ctx.restore();
+
+            animacionId = requestAnimationFrame(iniciarAnimacion);
+        }
+
+        // DIBUJAR ESTRUCTURA DEL RELOJ (Cuerpos cerrados de cristal)
+        function dibujarEstructuraReloj() {
+            ctx.save();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#ffffff';
+
+            ctx.beginPath();
+            // Tapa Superior
+            ctx.moveTo(-anchoReloj / 2, -altoReloj);
+            ctx.lineTo(anchoReloj / 2, -altoReloj);
+            // Pared Derecha Superior
+            ctx.lineTo(cuelloAncho / 2, 0);
+            // Pared Derecha Inferior
+            ctx.lineTo(anchoReloj / 2, altoReloj);
+            // Base Inferior
+            ctx.lineTo(-anchoReloj / 2, altoReloj);
+            // Pared Izquierda Inferior
+            ctx.lineTo(-cuelloAncho / 2, 0);
+            // Pared Izquierda Superior
+            ctx.closePath();
+            ctx.stroke();
+
+            // Bordes exteriores decorativos
+            ctx.strokeRect(-anchoReloj / 2 - 12, -altoReloj - 6, anchoReloj + 24, 6);
+            ctx.strokeRect(-anchoReloj / 2 - 12, altoReloj, anchoReloj + 24, 6);
+
+            ctx.restore();
+        }
+
+        function dibujarParticula(x, y, tam) {
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 6;
+            ctx.shadowColor = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(x, y, tam, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    </script>
+</body>
+</html>
